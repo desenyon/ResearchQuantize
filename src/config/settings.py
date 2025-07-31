@@ -15,7 +15,6 @@ DEFAULT_YEAR_FILTER = None
 ARXIV_API_KEY = os.getenv("ARXIV_API_KEY", "")
 PUBMED_API_KEY = os.getenv("PUBMED_API_KEY", "")
 SEMANTIC_SCHOLAR_API_KEY = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
-GOOGLE_SCHOLAR_API_KEY = os.getenv("GOOGLE_SCHOLAR_API_KEY", "")
 
 # Database path
 DATABASE_PATH = os.getenv("DATABASE_PATH", "papers.db")

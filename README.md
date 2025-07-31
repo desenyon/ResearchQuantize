@@ -1,105 +1,242 @@
 # ResearchQuantize
 
-**ResearchQuantize** is a  command-line tool that aggregates and searches research papers from multiple sources, like **Arxiv**, **PubMed**, and **Semantic Scholar**. (Google Scholar is temporarily disabled but can be re-enabled easily.)
+ResearchQuantize is a powerful CLI tool for aggregating and searching research papers from many academic sources like ArXiv, PubMed, and Semantic Scholar.
 
-It is easy to discover, filter, and save academic papers for your research needs.
+**Features:**
 
-## Installation
+- **Parallel Processing**: Fast concurrent API calls for optimal performance
+- **GUI Interface**: Modern Textual-based interactive interface
+- **Database Storage**: SQLite database with full paper metadata
 
 ### Prerequisites
 
 - Python 3.8 or higher
 - `pip` (Python package manager)
 
-### Steps
+### Quick Setup
 
-1. Clone the repository:
+1. **Clone the repository:**
 
    ```bash
-   git clone https://github.com/XCALEN/ResearchQuantize.git
+   git clone https://github.com/desenyon/ResearchQuantize.git
    cd ResearchQuantize
    ```
-2. Create and activate a virtual environment:
+2. **Create and activate a virtual environment:**
 
    ```bash
-   python3 -m venv venv
-   source venv/bin/activate
+   python3 -m venv .venv
+   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
    ```
-3. Install dependencies:
+3. **Install dependencies:**
 
    ```bash
    pip install -r requirements.txt
    ```
-4. Not Required (Really not needed unless you want to surpass ratelimits)- Set up environment variables:
+4. **Test the installation:**
 
-   - Create a `.env` file in the root directory and add any required API keys:
-     ```env
-     ARXIV_API_KEY=  # Not required
-     PUBMED_API_KEY=your_pubmed_api_key # only if >100 requests (check with pubmed)
-     SEMANTIC_SCHOLAR_API_KEY=  # Not required
-     GOOGLE_SCHOLAR_API_KEY=  # Temporarily disabled
-     DATABASE_PATH=papers.db
-     ```
+   ```bash
+   python src/cli.py version
+   ```
+
+### Optional Configuration
+
+Environment variables (create `.env` file if needed):
+
+```env
+# Optional API keys (not required for basic usage)
+PUBMED_API_KEY=your_key_here  # Only needed for >100 requests
+SEMANTIC_SCHOLAR_API_KEY=your_key_here  # Optional for rate limiting
+DATABASE_PATH=papers.db  # Custom database location
+```
 
 ## Usage
 
-### Aggregate Papers
+### 🚀 Quick Start
 
-Aggregate papers from multiple sources based on a query:
-
-```bash
-python3 src/cli.py aggregate --query "machine learning" --limit 10
-```
-
-### Search Papers
-
-Search for specific papers with optional filters:
+**Aggregate papers from all sources:**
 
 ```bash
-python3 src/cli.py search --query "neural networks" --source arxiv
+python src/cli.py aggregate --query "machine learning" --limit 10
 ```
 
-### View Saved Papers
-
-All fetched papers are saved to an SQLite database (`papers.db`). You can view them using the SQLite CLI:
+**Search with source filtering:**
 
 ```bash
-sqlite3 papers.db "SELECT * FROM papers;"
+python src/cli.py search --query "neural networks" --source arxiv --year 2024
 ```
 
----
+**Export to JSON:**
 
-## Configuration
+```bash
+python src/cli.py --format json --output results.json aggregate --query "AI" --limit 20
+```
 
-You can customize the behavior of PaperEngine by modifying the following files:
+**Launch GUI:**
 
-- **`src/config/preferences.json`**: User preferences such as default query limits and themes.
-- **`.env`**: Environment variables for API keys and database paths.
+```bash
+python src/cli.py gui
+```
 
-Example `preferences.json`:
+### 📊 Advanced Usage
+
+**Multiple output formats:**
+
+```bash
+# Table format (default)
+python src/cli.py aggregate --query "quantum computing"
+
+# JSON export  
+python src/cli.py --format json --output papers.json search --query "ML" --source semantic_scholar
+
+# CSV export
+python src/cli.py --format csv --output data.csv aggregate --query "deep learning" --limit 50
+```
+
+**Source-specific searches:**
+
+```bash
+# ArXiv only
+python src/cli.py search --query "computer vision" --source arxiv
+
+# PubMed only  
+python src/cli.py search --query "cancer research" --source pubmed
+
+# Semantic Scholar only
+python src/cli.py search --query "NLP" --source semantic_scholar
+```
+
+**Year filtering:**
+
+```bash
+python src/cli.py search --query "AI ethics" --year 2024 --limit 15
+```
+
+### 🖥️ GUI Mode
+
+Launch the interactive GUI for an enhanced user experience:
+
+```bash
+python src/cli.py gui
+```
+
+Features:
+
+- Interactive search interface
+- Real-time filtering options
+- Beautiful results display
+- Export capabilities
+
+### 🗃️ Database Operations
+
+ResearchQuantize automatically saves all papers to an SQLite database (`papers.db`).
+
+**View saved papers:**
+
+```bash
+sqlite3 papers.db "SELECT title, authors, source FROM papers LIMIT 5;"
+```
+
+**Count papers by source:**
+
+```bash
+sqlite3 papers.db "SELECT source, COUNT(*) FROM papers GROUP BY source;"
+```
+
+**Export database to CSV:**
+
+```bash
+sqlite3 -header -csv papers.db "SELECT * FROM papers;" > all_papers.csv
+```
+
+## 🏗️ Architecture
+
+### Supported Sources
+
+- **ArXiv**  - Physics, mathematics, computer science preprints
+- **PubMed**  - Medical and life science literature
+- **Semantic Scholar**  - Academic papers with rich metadata and citations
+
+## ⚙️ Configuration
+
+### Preferences
+
+Customize behavior via `src/config/preferences.json`:
 
 ```json
 {
     "default_query_limit": 10,
-    "default_source": "arxiv",
+    "default_source": "arxiv", 
     "default_year_filter": null,
     "theme": "dark",
     "show_advanced_options": false
 }
 ```
 
----
+### Environment Variables
 
-## Database
+Optional `.env` file configuration:
 
-ResearchQuantize uses an SQLite database (`papers.db`) to store fetched papers. The database schema includes the following fields:
+```env
+# API Keys (optional)
+PUBMED_API_KEY=your_key_here
+SEMANTIC_SCHOLAR_API_KEY=your_key_here
 
-- `title`: Title of the paper.
-- `authors`: Comma-separated list of authors.
-- `published_date`: Publication date of the paper.
-- `source`: Source of the paper (e.g., Arxiv, PubMed).
+# Database
+DATABASE_PATH=papers.db
 
-You can query the database directly using SQLite commands or integrate it into other tools.
+# Logging
+LOG_LEVEL=INFO
+```
+
+## 🧪 Testing
+
+Run the test suite:
+
+```bash
+# All tests
+python -m pytest src/tests/ -v
+
+# Quick test
+python -m pytest src/tests/ -q
+
+# With coverage
+python -m pytest src/tests/ --cov=src --cov-report=html
+```
+
+## 🚀 Performance
+
+**Benchmarks:**
+
+- Parallel aggregation: ~16 papers in <1 second
+- ArXiv: ~3 second rate limiting between requests
+- Semantic Scholar: ~0.1 second rate limiting
+- Deduplication: Advanced similarity matching with configurable thresholds
+
+🗄️ Database Schema
+
+The SQLite database (`papers.db`) stores comprehensive paper metadata:
+
+| Field                   | Type    | Description                                   |
+| ----------------------- | ------- | --------------------------------------------- |
+| `id`                  | INTEGER | Primary key                                   |
+| `title`               | TEXT    | Paper title                                   |
+| `authors`             | TEXT    | Comma-separated author list                   |
+| `published_date`      | TEXT    | Publication date (ISO format)                 |
+| `source`              | TEXT    | Data source (arxiv, pubmed, semantic_scholar) |
+| `abstract`            | TEXT    | Paper abstract                                |
+| `url`                 | TEXT    | Paper URL                                     |
+| `doi`                 | TEXT    | Digital Object Identifier                     |
+| `keywords`            | TEXT    | Comma-separated keywords                      |
+| `citations`           | INTEGER | Citation count                                |
+| `journal`             | TEXT    | Journal name                                  |
+| `volume`              | TEXT    | Volume number                                 |
+| `issue`               | TEXT    | Issue number                                  |
+| `pages`               | TEXT    | Page range                                    |
+| `pdf_url`             | TEXT    | PDF download URL                              |
+| `arxiv_id`            | TEXT    | ArXiv identifier                              |
+| `pubmed_id`           | TEXT    | PubMed identifier                             |
+| `semantic_scholar_id` | TEXT    | Semantic Scholar identifier                   |
+| `created_at`          | TEXT    | Record creation timestamp                     |
 
 ## License
 
@@ -107,10 +244,37 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ---
 
-## Notes
+## 📊 Example Output
 
-- **Google Scholar**: Temporarily disabled due to potential scraping issues. To re-enable it, uncomment the relevant lines in `src/aggregator/core.py`:
-  ```python
-  # google_scholar_papers = google_scholar_client.fetch_papers(query, limit)
-  google_scholar_papers = google_scholar_client.fetch_papers(query, limit) # this might not work as google scholar does not have offical API, might need to implement web scraping
-  ```
+```bash
+$ python src/cli.py aggregate --query "machine learning" --limit 5
+
+╭─────────────────────────────────── Welcome ───────────────────────────────────╮
+│                                                                               │
+│  ResearchQuantize v1.1.0 - Aggregate and Search Research Papers               │
+│                                                                               │
+╰───────────────────────────────────────────────────────────────────────────────╯
+
+Aggregating papers for query: machine learning
+⠋ Fetching papers from multiple sources...
+
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━┓
+┃ Title                                          ┃ Authors                    ┃ Publish… ┃ Source     ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━┩
+│ Machine Learning Potential Repository          │ Atsuto Seko                │ 2020-07… │ ArXiv      │
+│ Physics-informed machine learning              │ G. Karniadakis, I.         │ 2021-05… │ Semantic   │
+│                                                │ Kevrekidis, Lu Lu          │          │ Scholar    │
+│ TensorFlow: Large-Scale Machine Learning       │ Martín Abadi, Ashish       │ 2016-03… │ Semantic   │
+│                                                │ Agarwal, P. Barham         │          │ Scholar    │
+└────────────────────────────────────────────────┴────────────────────────────┴──────────┴────────────┘
+
+Total papers found: 10
+
+  Paper Sources Statistics  
+┏━━━━━━━━━━━━━━━━━━┳━━━━━━━┓
+┃ Source           ┃ Count ┃
+┡━━━━━━━━━━━━━━━━━━╇━━━━━━━┩
+│ ArXiv            │     5 │
+│ Semantic Scholar │     5 │
+└──────────────────┴───────┘
+```

@@ -1,44 +1,122 @@
 # src/aggregator/core.py
 
-from aggregator.sources.arxiv import ArxivClient
-from aggregator.sources.pubmed import PubmedClient
-from aggregator.sources.semantic_scholar import SemanticScholarClient
-from aggregator.sources.google_scholar import GoogleScholarClient
-from aggregator.models.paper import Paper
-from aggregator.utils.logger import setup_logger
+import asyncio
+from typing import List, Dict, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
+
+from .sources.arxiv import ArxivClient
+from .sources.pubmed import PubmedClient
+from .sources.semantic_scholar import SemanticScholarClient
+from .models.paper import Paper
+from .utils.logger import setup_logger
+from .utils.helpers import deduplicate_papers, merge_papers_by_similarity
 
 logger = setup_logger()
 
-def aggregate_papers(query, limit=10):
+class PaperAggregator:
+    """Advanced paper aggregation engine with parallel processing and deduplication."""
+    
+    def __init__(self):
+        self.clients = {
+            'arxiv': ArxivClient(),
+            'pubmed': PubmedClient(),
+            'semantic_scholar': SemanticScholarClient(),
+        }
+        self.max_workers = 4
+    
+    def aggregate_papers_parallel(self, query: str, limit: int = 10, 
+                                sources: Optional[List[str]] = None,
+                                enable_deduplication: bool = True) -> List[Paper]:
+        """
+        Aggregate papers from multiple sources in parallel with advanced features.
+        
+        Args:
+            query (str): The search query.
+            limit (int): Maximum number of papers to retrieve from each source.
+            sources (List[str]): Specific sources to search. If None, searches all.
+            enable_deduplication (bool): Whether to remove duplicate papers.
+        
+        Returns:
+            List[Paper]: A list of aggregated and deduplicated Paper objects.
+        """
+        start_time = time.time()
+        logger.info(f"Starting parallel aggregation for query: '{query}' with limit: {limit}")
+        
+        # Determine which sources to use
+        active_sources = sources or list(self.clients.keys())
+        active_clients = {name: client for name, client in self.clients.items() 
+                         if name in active_sources}
+        
+        all_papers = []
+        source_stats = {}
+        
+        # Use ThreadPoolExecutor for parallel API calls
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            # Submit tasks for each source
+            future_to_source = {
+                executor.submit(self._fetch_from_source, name, client, query, limit): name
+                for name, client in active_clients.items()
+            }
+            
+            # Collect results as they complete
+            for future in as_completed(future_to_source):
+                source_name = future_to_source[future]
+                try:
+                    papers = future.result(timeout=30)  # 30 second timeout per source
+                    all_papers.extend(papers)
+                    source_stats[source_name] = len(papers)
+                    logger.info(f"Retrieved {len(papers)} papers from {source_name}")
+                except Exception as e:
+                    logger.error(f"Error fetching from {source_name}: {str(e)}")
+                    source_stats[source_name] = 0
+        
+        # Deduplicate papers if enabled
+        if enable_deduplication and all_papers:
+            original_count = len(all_papers)
+            all_papers = deduplicate_papers(all_papers)
+            dedup_count = len(all_papers)
+            logger.info(f"Deduplication: {original_count} -> {dedup_count} papers "
+                       f"({original_count - dedup_count} duplicates removed)")
+        
+        end_time = time.time()
+        logger.info(f"Aggregation completed in {end_time - start_time:.2f} seconds. "
+                   f"Total papers: {len(all_papers)}")
+        logger.info(f"Source breakdown: {source_stats}")
+        
+        return all_papers
+    
+    def _fetch_from_source(self, source_name: str, client, query: str, limit: int) -> List[Paper]:
+        """
+        Fetch papers from a single source with error handling.
+        
+        Args:
+            source_name (str): Name of the source
+            client: The client instance for the source
+            query (str): Search query
+            limit (int): Maximum papers to fetch
+            
+        Returns:
+            List[Paper]: Papers from this source
+        """
+        try:
+            return client.fetch_papers(query, limit)
+        except Exception as e:
+            logger.error(f"Failed to fetch from {source_name}: {str(e)}")
+            return []
+
+# Legacy function for backward compatibility
+def aggregate_papers(query: str, limit: int = 10, sources: Optional[List[str]] = None) -> List[Paper]:
     """
-    Aggregate papers from multiple sources based on the query.
+    Legacy aggregation function - maintains backward compatibility.
     
     Args:
         query (str): The search query.
         limit (int): Maximum number of papers to retrieve from each source.
+        sources (List[str]): Specific sources to search.
     
     Returns:
-        list: A list of aggregated Paper objects.
+        List[Paper]: A list of aggregated Paper objects.
     """
-    logger.info(f"Starting aggregation for query: {query}")
-    
-    # Initialize API clients
-    arxiv_client = ArxivClient()
-    pubmed_client = PubmedClient()
-    semantic_scholar_client = SemanticScholarClient()
-    google_scholar_client = GoogleScholarClient()
-
-    # Fetch papers from each source
-    arxiv_papers = arxiv_client.fetch_papers(query, limit)
-    pubmed_papers = pubmed_client.fetch_papers(query, limit)
-    semantic_scholar_papers = semantic_scholar_client.fetch_papers(query, limit)
-
-    # Temporarily disable Google Scholar by commenting out its usage
-    # google_scholar_papers = google_scholar_client.fetch_papers(query, limit)
-    google_scholar_papers = []  # Return an empty list instead
-
-    # Combine all papers into one list
-    aggregated_papers = arxiv_papers + pubmed_papers + semantic_scholar_papers + google_scholar_papers
-
-    logger.info(f"Aggregated {len(aggregated_papers)} papers.")
-    return aggregated_papers
+    aggregator = PaperAggregator()
+    return aggregator.aggregate_papers_parallel(query, limit, sources)

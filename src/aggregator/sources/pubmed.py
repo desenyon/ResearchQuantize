@@ -1,8 +1,8 @@
 # src/aggregator/sources/pubmed.py
 
 import requests
-from aggregator.models.paper import Paper
-from aggregator.utils.logger import setup_logger
+from ..models.paper import Paper
+from ..utils.logger import setup_logger
 
 logger = setup_logger()
 

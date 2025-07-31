@@ -5,13 +5,13 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="ResearchQuantize",
-    version="0.1A",
-    author="XCALEN",
-    author_email="hylendust@gmail.com",
+    version="1.1",
+    author="Desenyon",
+    author_email="Desenyon@gmail.com",
     description="A command-line tool to aggregate and search research papers from multiple sources.",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/Arcoson/ResearchQuantize",
+    url="https://github.com/desenyon/ResearchQuantize",
     packages=find_packages(where="src"),  # Find packages in the `src` directory
     package_dir={"": "src"},  # Specify that packages are under `src`
     include_package_data=True,

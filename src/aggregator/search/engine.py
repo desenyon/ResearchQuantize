@@ -1,10 +1,9 @@
 # src/aggregator/search/engine.py
 
-from aggregator.sources.arxiv import ArxivClient
-from aggregator.sources.pubmed import PubmedClient
-from aggregator.sources.semantic_scholar import SemanticScholarClient
-from aggregator.sources.google_scholar import GoogleScholarClient
-from aggregator.utils.logger import setup_logger
+from ..sources.arxiv import ArxivClient
+from ..sources.pubmed import PubmedClient
+from ..sources.semantic_scholar import SemanticScholarClient
+from ..utils.logger import setup_logger
 
 logger = setup_logger()
 
@@ -14,7 +13,7 @@ def search_papers(query, source=None, year=None):
     
     Args:
         query (str): The search query.
-        source (str): Filter by source (arxiv, pubmed, semantic_scholar, google_scholar).
+        source (str): Filter by source (arxiv, pubmed, semantic_scholar).
         year (int): Filter by publication year.
     
     Returns:
@@ -26,7 +25,6 @@ def search_papers(query, source=None, year=None):
         'arxiv': ArxivClient(),
         'pubmed': PubmedClient(),
         'semantic_scholar': SemanticScholarClient(),
-        'google_scholar': GoogleScholarClient()
     }
 
     if source:
