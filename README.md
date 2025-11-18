@@ -51,7 +51,7 @@ DATABASE_PATH=papers.db  # Custom database location
 
 ## Usage
 
-### 🚀 Quick Start
+### Quick Start
 
 **Aggregate papers from all sources:**
 
@@ -77,7 +77,7 @@ python src/cli.py --format json --output results.json aggregate --query "AI" --l
 python src/cli.py gui
 ```
 
-### 📊 Advanced Usage
+### Advanced Usage
 
 **Multiple output formats:**
 
@@ -111,7 +111,7 @@ python src/cli.py search --query "NLP" --source semantic_scholar
 python src/cli.py search --query "AI ethics" --year 2024 --limit 15
 ```
 
-### 🖥️ GUI Mode
+### GUI Mode
 
 Launch the interactive GUI for an enhanced user experience:
 
@@ -126,7 +126,7 @@ Features:
 - Beautiful results display
 - Export capabilities
 
-### 🗃️ Database Operations
+### Database Operations
 
 ResearchQuantize automatically saves all papers to an SQLite database (`papers.db`).
 
@@ -148,7 +148,7 @@ sqlite3 papers.db "SELECT source, COUNT(*) FROM papers GROUP BY source;"
 sqlite3 -header -csv papers.db "SELECT * FROM papers;" > all_papers.csv
 ```
 
-## 🏗️ Architecture
+## Architecture
 
 ### Supported Sources
 
@@ -156,7 +156,7 @@ sqlite3 -header -csv papers.db "SELECT * FROM papers;" > all_papers.csv
 - **PubMed**  - Medical and life science literature
 - **Semantic Scholar**  - Academic papers with rich metadata and citations
 
-## ⚙️ Configuration
+## Configuration
 
 ### Preferences
 
@@ -188,7 +188,7 @@ DATABASE_PATH=papers.db
 LOG_LEVEL=INFO
 ```
 
-## 🧪 Testing
+## Testing
 
 Run the test suite:
 
@@ -203,7 +203,7 @@ python -m pytest src/tests/ -q
 python -m pytest src/tests/ --cov=src --cov-report=html
 ```
 
-## 🚀 Performance
+## Performance
 
 **Benchmarks:**
 
@@ -212,7 +212,7 @@ python -m pytest src/tests/ --cov=src --cov-report=html
 - Semantic Scholar: ~0.1 second rate limiting
 - Deduplication: Advanced similarity matching with configurable thresholds
 
-🗄️ Database Schema
+Database Schema
 
 The SQLite database (`papers.db`) stores comprehensive paper metadata:
 
@@ -244,7 +244,7 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ---
 
-## 📊 Example Output
+## Example Output
 
 ```bash
 $ python src/cli.py aggregate --query "machine learning" --limit 5
