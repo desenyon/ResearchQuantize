@@ -1,15 +1,28 @@
-# src/aggregator/models/paper.py
+from __future__ import annotations
 
-from typing import List, Optional, Dict, Any
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 import json
+import re
+from typing import Any, Dict, List, Optional
 
-@dataclass
+
+_YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
+_URL_RE = re.compile(
+    r"^https?://"
+    r"(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,63}\.?|"
+    r"localhost|"
+    r"\d{1,3}(?:\.\d{1,3}){3})"
+    r"(?::\d+)?"
+    r"(?:/?|[/?]\S+)$",
+    re.IGNORECASE,
+)
+
+
+@dataclass(eq=False)
 class Paper:
-    """
-    Enhanced Paper model with validation and additional metadata.
-    """
+    """Canonical paper entity used across all source clients and storage layers."""
+
     title: str
     authors: List[str] = field(default_factory=list)
     published_date: Optional[str] = None
@@ -27,167 +40,171 @@ class Paper:
     arxiv_id: Optional[str] = None
     pubmed_id: Optional[str] = None
     semantic_scholar_id: Optional[str] = None
-    created_at: datetime = field(default_factory=datetime.now)
-    
-    def __post_init__(self):
-        """Validate and clean data after initialization."""
-        # Clean title
-        if self.title:
-            self.title = self.title.strip()
-        else:
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    def __post_init__(self) -> None:
+        self.title = (self.title or "").strip()
+        if not self.title:
             raise ValueError("Paper title cannot be empty")
-        
-        # Clean authors
-        if self.authors:
-            self.authors = [author.strip() for author in self.authors if author.strip()]
-        
-        # Clean abstract
-        if self.abstract:
-            self.abstract = self.abstract.strip()
-        
-        # Validate URLs
-        if self.url and not self._is_valid_url(self.url):
-            self.url = None
-        
-        if self.pdf_url and not self._is_valid_url(self.pdf_url):
-            self.pdf_url = None
-    
+
+        self.authors = self._normalize_str_list(self.authors)
+        self.keywords = self._normalize_str_list(self.keywords)
+
+        self.abstract = self._normalize_optional_text(self.abstract)
+        self.source = self._normalize_optional_text(self.source)
+        self.published_date = self._normalize_optional_text(self.published_date)
+        self.doi = self._normalize_optional_text(self.doi)
+        self.journal = self._normalize_optional_text(self.journal)
+        self.volume = self._normalize_optional_text(self.volume)
+        self.issue = self._normalize_optional_text(self.issue)
+        self.pages = self._normalize_optional_text(self.pages)
+        self.arxiv_id = self._normalize_optional_text(self.arxiv_id)
+        self.pubmed_id = self._normalize_optional_text(self.pubmed_id)
+        self.semantic_scholar_id = self._normalize_optional_text(self.semantic_scholar_id)
+
+        self.url = self._normalize_url(self.url)
+        self.pdf_url = self._normalize_url(self.pdf_url)
+
+        if self.citations is not None:
+            try:
+                self.citations = max(0, int(self.citations))
+            except (TypeError, ValueError):
+                self.citations = None
+
+    @staticmethod
+    def _normalize_str_list(items: Optional[List[str]]) -> List[str]:
+        if not items:
+            return []
+
+        normalized: List[str] = []
+        seen = set()
+        for item in items:
+            cleaned = (item or "").strip()
+            if cleaned and cleaned.lower() not in seen:
+                seen.add(cleaned.lower())
+                normalized.append(cleaned)
+        return normalized
+
+    @staticmethod
+    def _normalize_optional_text(value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = str(value).strip()
+        return cleaned or None
+
+    @classmethod
+    def _normalize_url(cls, value: Optional[str]) -> Optional[str]:
+        cleaned = cls._normalize_optional_text(value)
+        if not cleaned:
+            return None
+        return cleaned if cls._is_valid_url(cleaned) else None
+
     @staticmethod
     def _is_valid_url(url: str) -> bool:
-        """Validate URL format."""
-        import re
-        url_pattern = re.compile(
-            r'^https?://'  # http:// or https://
-            r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|'  # domain...
-            r'localhost|'  # localhost...
-            r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # ...or ip
-            r'(?::\d+)?'  # optional port
-            r'(?:/?|[/?]\S+)$', re.IGNORECASE)
-        return url_pattern.match(url) is not None
-    
+        return bool(_URL_RE.match(url))
+
     def to_dict(self) -> Dict[str, Any]:
-        """Convert Paper to dictionary."""
-        result = {}
+        payload: Dict[str, Any] = {}
         for key, value in self.__dict__.items():
-            if key == 'created_at':
-                result[key] = value.isoformat() if value else None
-            elif isinstance(value, list):
-                result[key] = value if value else []
+            if key == "created_at":
+                payload[key] = value.isoformat() if value else None
             else:
-                result[key] = value
-        return result
-    
+                payload[key] = value
+        return payload
+
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'Paper':
-        """Create Paper from dictionary."""
-        # Handle datetime conversion
-        if 'created_at' in data and isinstance(data['created_at'], str):
-            data['created_at'] = datetime.fromisoformat(data['created_at'])
-        
-        # Filter out unknown fields
+    def from_dict(cls, data: Dict[str, Any]) -> "Paper":
+        clean_data = dict(data)
+        created_at = clean_data.get("created_at")
+        if isinstance(created_at, str):
+            try:
+                clean_data["created_at"] = datetime.fromisoformat(created_at)
+            except ValueError:
+                clean_data.pop("created_at", None)
+
         valid_fields = set(cls.__dataclass_fields__.keys())
-        filtered_data = {k: v for k, v in data.items() if k in valid_fields}
-        
-        return cls(**filtered_data)
-    
+        filtered = {k: v for k, v in clean_data.items() if k in valid_fields}
+        return cls(**filtered)
+
     def to_json(self) -> str:
-        """Convert Paper to JSON string."""
         return json.dumps(self.to_dict(), indent=2, ensure_ascii=False)
-    
+
     @classmethod
-    def from_json(cls, json_str: str) -> 'Paper':
-        """Create Paper from JSON string."""
-        data = json.loads(json_str)
-        return cls.from_dict(data)
-    
+    def from_json(cls, json_str: str) -> "Paper":
+        return cls.from_dict(json.loads(json_str))
+
     def get_primary_author(self) -> str:
-        """Get the first author or 'Unknown' if no authors."""
         return self.authors[0] if self.authors else "Unknown"
-    
+
     def get_author_list_str(self, max_authors: int = 3) -> str:
-        """Get formatted author string."""
         if not self.authors:
             return "Unknown"
-        
+
         if len(self.authors) <= max_authors:
             return ", ".join(self.authors)
-        else:
-            return f"{', '.join(self.authors[:max_authors])}, et al."
-    
-    def get_formatted_citation(self) -> str:
-        """Get formatted citation string."""
-        authors = self.get_author_list_str()
-        year = self.get_publication_year()
-        title = self.title
-        
-        citation = f"{authors} ({year}). {title}."
-        
-        if self.journal:
-            citation += f" {self.journal}"
-            if self.volume:
-                citation += f", {self.volume}"
-                if self.issue:
-                    citation += f"({self.issue})"
-            if self.pages:
-                citation += f", {self.pages}"
-        
-        if self.doi:
-            citation += f" DOI: {self.doi}"
-        
-        return citation
-    
+
+        return f"{', '.join(self.authors[:max_authors])}, et al."
+
     def get_publication_year(self) -> str:
-        """Extract year from published_date."""
         if not self.published_date:
             return "Unknown"
-        
-        # Try to extract year from various date formats
-        import re
-        year_match = re.search(r'\b(19|20)\d{2}\b', str(self.published_date))
-        return year_match.group() if year_match else "Unknown"
-    
-    def has_pdf(self) -> bool:
-        """Check if paper has PDF URL."""
-        return bool(self.pdf_url)
-    
+
+        match = _YEAR_RE.search(str(self.published_date))
+        return match.group(0) if match else "Unknown"
+
     def is_recent(self, years: int = 5) -> bool:
-        """Check if paper is published within specified years."""
+        if years < 0:
+            return False
+
         try:
             year = int(self.get_publication_year())
-            current_year = datetime.now().year
-            return (current_year - year) <= years
-        except (ValueError, TypeError):
+        except ValueError:
             return False
-    
-    def get_source_icon(self) -> str:
-        """Get Unicode icon for source."""
-        icons = {
-            'arxiv': '📄',
-            'pubmed': '🏥',
-            'semantic_scholar': '🎓',
-            'unknown': '📋'
-        }
-        source_lower = (self.source or 'unknown').lower()
-        return icons.get(source_lower, icons['unknown'])
-    
+
+        current_year = datetime.now(UTC).year
+        return (current_year - year) <= years
+
+    def has_pdf(self) -> bool:
+        return bool(self.pdf_url)
+
+    def get_formatted_citation(self) -> str:
+        authors = self.get_author_list_str()
+        year = self.get_publication_year()
+        parts = [f"{authors} ({year}). {self.title}."]
+
+        if self.journal:
+            journal = self.journal
+            if self.volume:
+                journal += f", {self.volume}"
+                if self.issue:
+                    journal += f"({self.issue})"
+            if self.pages:
+                journal += f", {self.pages}"
+            parts.append(journal)
+
+        if self.doi:
+            parts.append(f"DOI: {self.doi}")
+
+        return " ".join(parts)
+
     def __str__(self) -> str:
-        """String representation for display."""
-        return f"{self.get_source_icon()} {self.title} - {self.get_author_list_str()} ({self.get_publication_year()})"
-    
+        return f"{self.title} - {self.get_author_list_str()} ({self.get_publication_year()})"
+
     def __repr__(self) -> str:
-        """Detailed representation for debugging."""
-        return (f"Paper(title='{self.title[:50]}...', "
-                f"authors={len(self.authors)}, "
-                f"source='{self.source}', "
-                f"year='{self.get_publication_year()}')")
-    
-    def __eq__(self, other) -> bool:
-        """Check equality based on title and primary author."""
+        return (
+            f"Paper(title={self.title!r}, source={self.source!r}, "
+            f"authors={len(self.authors)}, year={self.get_publication_year()!r})"
+        )
+
+    def __eq__(self, other: object) -> bool:
         if not isinstance(other, Paper):
             return False
-        return (self.title.lower() == other.title.lower() and 
-                self.get_primary_author().lower() == other.get_primary_author().lower())
-    
+
+        return (
+            self.title.lower() == other.title.lower()
+            and self.get_primary_author().lower() == other.get_primary_author().lower()
+        )
+
     def __hash__(self) -> int:
-        """Hash based on title for use in sets."""
-        return hash(self.title.lower() if self.title else "")
+        key = (self.title.lower(), self.get_primary_author().lower())
+        return hash(key)
