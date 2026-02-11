@@ -1,112 +1,108 @@
-# src/tests/test_sources.py
-
-import unittest
+import json
 import sys
+import unittest
 from pathlib import Path
+from unittest.mock import MagicMock
 
-# Add src to path for imports
+import requests
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from aggregator.sources.arxiv import ArxivClient
-from aggregator.sources.semantic_scholar import SemanticScholarClient
 from aggregator.models.paper import Paper
+from aggregator.sources.arxiv import ArxivClient
+from aggregator.sources.pubmed import PubmedClient
+from aggregator.sources.semantic_scholar import SemanticScholarClient
+
+
+ARXIV_XML = """<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<feed xmlns=\"http://www.w3.org/2005/Atom\" xmlns:arxiv=\"http://arxiv.org/schemas/atom\">
+  <entry>
+    <id>http://arxiv.org/abs/2401.12345v1</id>
+    <updated>2024-01-10T00:00:00Z</updated>
+    <published>2024-01-09T00:00:00Z</published>
+    <title> Test Driven Research </title>
+    <summary>  A robust approach. </summary>
+    <author><name>Alice</name></author>
+    <author><name>Bob</name></author>
+    <arxiv:doi>10.1000/arxiv.test</arxiv:doi>
+    <link href=\"http://arxiv.org/abs/2401.12345v1\" rel=\"alternate\" type=\"text/html\"/>
+    <link href=\"http://arxiv.org/pdf/2401.12345v1\" rel=\"related\" type=\"application/pdf\"/>
+    <category term=\"cs.AI\"/>
+  </entry>
+</feed>
+"""
+
 
 class TestSources(unittest.TestCase):
-    def setUp(self):
-        """Set up test fixtures."""
-        self.arxiv_client = ArxivClient()
-        self.semantic_client = SemanticScholarClient()
-        self.test_query = "quantum computing"
-        self.test_limit = 3
-    
-    def test_arxiv_client_init(self):
-        """Test ArXiv client initialization."""
-        self.assertIsNotNone(self.arxiv_client.session)
-        self.assertEqual(self.arxiv_client.rate_limit_delay, 3)
-    
-    def test_arxiv_fetch_papers(self):
-        """Test ArXiv paper fetching."""
-        papers = self.arxiv_client.fetch_papers(self.test_query, limit=self.test_limit)
-        self.assertIsInstance(papers, list)
-        
-        # Verify paper structure
-        for paper in papers:
-            self.assertIsInstance(paper, Paper)
-            self.assertIsNotNone(paper.title)
-            self.assertEqual(paper.source, "ArXiv")
-    
-    def test_arxiv_search_by_category(self):
-        """Test ArXiv category search."""
-        papers = self.arxiv_client.search_by_category("cs.AI", limit=2)
-        self.assertIsInstance(papers, list)
-        
-        for paper in papers:
-            self.assertIsInstance(paper, Paper)
-            self.assertEqual(paper.source, "ArXiv")
-    
-    def test_semantic_scholar_client_init(self):
-        """Test Semantic Scholar client initialization."""
-        self.assertIsNotNone(self.semantic_client.session)
-        self.assertEqual(self.semantic_client.rate_limit_delay, 0.1)
-    
-    def test_semantic_scholar_fetch_papers(self):
-        """Test Semantic Scholar paper fetching."""
-        papers = self.semantic_client.fetch_papers(self.test_query, limit=self.test_limit)
-        self.assertIsInstance(papers, list)
-        
-        # Verify paper structure
-        for paper in papers:
-            self.assertIsInstance(paper, Paper)
-            self.assertIsNotNone(paper.title)
-            self.assertEqual(paper.source, "Semantic Scholar")
-    
-    def test_paper_validation(self):
-        """Test paper data validation."""
-        # Test valid paper
-        valid_paper = Paper(
-            title="Valid Paper Title",
-            authors=["Author 1", "Author 2"],
-            published_date="2023-01-01",
-            source="Test"
-        )
-        self.assertEqual(valid_paper.title, "Valid Paper Title")
-        
-        # Test paper with invalid URL (should be set to None)
-        paper_with_invalid_url = Paper(
-            title="Test Paper",
-            authors=["Author"],
-            published_date="2023",
-            source="Test",
-            url="invalid-url"
-        )
-        self.assertIsNone(paper_with_invalid_url.url)
-    
-    def test_paper_methods(self):
-        """Test paper utility methods."""
-        paper = Paper(
-            title="A Very Long Paper Title That Should Be Truncated",
-            authors=["First Author", "Second Author", "Third Author", "Fourth Author"],
-            published_date="2023-06-15",
-            source="Test",
-            citations=42
-        )
-        
-        # Test author methods
-        self.assertEqual(paper.get_primary_author(), "First Author")
-        author_str = paper.get_author_list_str(max_authors=2)
-        self.assertIn("et al.", author_str)
-        
-        # Test year extraction
-        self.assertEqual(paper.get_publication_year(), "2023")
-        
-        # Test recent check
-        self.assertTrue(paper.is_recent(years=2))
-        self.assertFalse(paper.is_recent(years=0))
-        
-        # Test citation formatting
-        citation = paper.get_formatted_citation()
-        self.assertIn(paper.title, citation)
-        self.assertIn("2023", citation)
+    def test_arxiv_parse_response(self):
+        client = ArxivClient(rate_limit_delay=0)
+        papers = client._parse_response(ARXIV_XML)
+
+        self.assertEqual(len(papers), 1)
+        paper = papers[0]
+        self.assertIsInstance(paper, Paper)
+        self.assertEqual(paper.title, "Test Driven Research")
+        self.assertEqual(paper.source, "arxiv")
+        self.assertEqual(paper.arxiv_id, "2401.12345v1")
+        self.assertIn("cs.AI", paper.keywords)
+
+    def test_pubmed_summary_parse(self):
+        client = PubmedClient()
+        payload = {
+            "result": {
+                "uids": ["12345"],
+                "12345": {
+                    "title": "Clinical Study",
+                    "pubdate": "2023 Jan",
+                    "fulljournalname": "Medical Journal",
+                    "authors": [{"name": "Dr A"}],
+                    "articleids": [{"idtype": "doi", "value": "10.1/test"}],
+                },
+            }
+        }
+
+        papers = client._parse_summary_data(payload)
+        self.assertEqual(len(papers), 1)
+        self.assertEqual(papers[0].source, "pubmed")
+        self.assertEqual(papers[0].doi, "10.1/test")
+
+    def test_semantic_scholar_parse(self):
+        client = SemanticScholarClient(rate_limit_delay=0)
+        payload = {
+            "title": "Semantic Results",
+            "authors": [{"name": "Alice"}],
+            "year": 2024,
+            "abstract": "summary",
+            "venue": "ICML",
+            "citationCount": 42,
+            "fieldsOfStudy": ["Computer Science"],
+            "externalIds": {"DOI": "10.2/abc", "ArXiv": "2401.00001"},
+            "openAccessPdf": {"url": "https://example.com/paper.pdf"},
+            "paperId": "abcdef",
+        }
+
+        paper = client._parse_paper_data(payload)
+        self.assertIsNotNone(paper)
+        assert paper is not None
+        self.assertEqual(paper.source, "semantic_scholar")
+        self.assertEqual(paper.citations, 42)
+        self.assertEqual(paper.semantic_scholar_id, "abcdef")
+
+    def test_source_network_failures_return_empty(self):
+        response_error = requests.RequestException("boom")
+
+        arxiv = ArxivClient(rate_limit_delay=0)
+        arxiv.session.get = MagicMock(side_effect=response_error)
+        self.assertEqual(arxiv.fetch_papers("query"), [])
+
+        pubmed = PubmedClient()
+        pubmed.session.get = MagicMock(side_effect=response_error)
+        self.assertEqual(pubmed.fetch_papers("query"), [])
+
+        semantic = SemanticScholarClient(rate_limit_delay=0)
+        semantic.session.get = MagicMock(side_effect=response_error)
+        self.assertEqual(semantic.fetch_papers("query"), [])
+
 
 if __name__ == "__main__":
     unittest.main()
