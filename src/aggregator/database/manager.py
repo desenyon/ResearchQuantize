@@ -1,276 +1,148 @@
-# src/aggregator/database/manager.py
+from __future__ import annotations
 
+import json
 import sqlite3
-from typing import List
+from pathlib import Path
+from typing import Iterable, List, Optional
+
 from ..models.paper import Paper
 from ..utils.logger import setup_logger
+from .schema import SCHEMA_SQL
 
-logger = setup_logger()
+logger = setup_logger(__name__)
+
 
 class DatabaseManager:
-    def __init__(self, db_path="papers.db"):
-        self.db_path = db_path
-        self.conn = None
+    """SQLite storage for papers with idempotent inserts."""
+
+    def __init__(self, db_path: str = "papers.db"):
+        self.db_path = str(Path(db_path))
+        self.conn: Optional[sqlite3.Connection] = None
+        self._connect()
         self._initialize_db()
 
-    def _initialize_db(self):
-        """Initialize the database and create tables if they don't exist."""
-        try:
-            self.conn = sqlite3.connect(self.db_path)
-            cursor = self.conn.cursor()
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS papers (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    title TEXT NOT NULL,
-                    authors TEXT,
-                    published_date TEXT,
-                    source TEXT,
-                    abstract TEXT,
-                    url TEXT,
-                    doi TEXT,
-                    keywords TEXT,
-                    citations INTEGER,
-                    journal TEXT,
-                    volume TEXT,
-                    issue TEXT,
-                    pages TEXT,
-                    pdf_url TEXT,
-                    arxiv_id TEXT,
-                    pubmed_id TEXT,
-                    semantic_scholar_id TEXT,
-                    created_at TEXT
-                )
-            """)
-            self.conn.commit()
-            logger.info("Database initialized successfully.")
-        except Exception as e:
-            logger.error(f"Error initializing database: {e}")
+    def _connect(self) -> None:
+        self.conn = sqlite3.connect(self.db_path)
+        self.conn.row_factory = sqlite3.Row
 
-    def save_paper(self, paper):
-        """
-        Save a paper to the database.
-        
-        Args:
-            paper (Paper): The Paper object to save.
-        """
-        if not self.conn:
-            logger.error("Database connection not established.")
-            return
-            
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute("""
-                INSERT INTO papers (
-                    title, authors, published_date, source, abstract, url, doi, 
-                    keywords, citations, journal, volume, issue, pages, pdf_url,
-                    arxiv_id, pubmed_id, semantic_scholar_id, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                paper.title,
-                ", ".join(paper.authors) if paper.authors else "",
-                paper.published_date,
-                paper.source,
-                paper.abstract,
-                paper.url,
-                paper.doi,
-                ", ".join(paper.keywords) if paper.keywords else "",
-                paper.citations,
-                paper.journal,
-                paper.volume,
-                paper.issue,
-                paper.pages,
-                paper.pdf_url,
-                paper.arxiv_id,
-                paper.pubmed_id,
-                paper.semantic_scholar_id,
-                paper.created_at.isoformat() if paper.created_at else None
-            ))
-            self.conn.commit()
-            logger.info(f"Saved paper '{paper.title}' to the database.")
-        except Exception as e:
-            logger.error(f"Error saving paper to database: {e}")
+    def _initialize_db(self) -> None:
+        assert self.conn is not None
+        self.conn.execute(SCHEMA_SQL)
+        self.conn.commit()
 
-    def get_all_papers(self):
-        """
-        Retrieve all papers from the database.
-        
-        Returns:
-            list: A list of Paper objects.
-        """
-        if not self.conn:
-            logger.error("Database connection not established.")
-            return []
-            
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute("""
-                SELECT title, authors, published_date, source, abstract, url, doi,
-                       keywords, citations, journal, volume, issue, pages, pdf_url,
-                       arxiv_id, pubmed_id, semantic_scholar_id, created_at
-                FROM papers
-            """)
-            rows = cursor.fetchall()
-            papers = []
-            
-            for row in rows:
-                try:
-                    (title, authors, published_date, source, abstract, url, doi,
-                     keywords, citations, journal, volume, issue, pages, pdf_url,
-                     arxiv_id, pubmed_id, semantic_scholar_id, created_at) = row
-                    
-                    # Parse authors and keywords back to lists
-                    author_list = [a.strip() for a in authors.split(", ") if a.strip()] if authors else []
-                    keyword_list = [k.strip() for k in keywords.split(", ") if k.strip()] if keywords else []
-                    
-                    # Create Paper object
-                    paper = Paper(
-                        title=title,
-                        authors=author_list,
-                        published_date=published_date,
-                        source=source,
-                        abstract=abstract,
-                        url=url,
-                        doi=doi,
-                        keywords=keyword_list,
-                        citations=citations,
-                        journal=journal,
-                        volume=volume,
-                        issue=issue,
-                        pages=pages,
-                        pdf_url=pdf_url,
-                        arxiv_id=arxiv_id,
-                        pubmed_id=pubmed_id,
-                        semantic_scholar_id=semantic_scholar_id
-                    )
-                    papers.append(paper)
-                    
-                except Exception as paper_error:
-                    logger.warning(f"Error creating paper object from database row: {paper_error}")
-                    continue
-                    
-            logger.info(f"Retrieved {len(papers)} papers from database.")
-            return papers
-            
-        except Exception as e:
-            logger.error(f"Error retrieving papers from database: {e}")
-            return []
-
-    def close(self):
-        """Close the database connection."""
+    def close(self) -> None:
         if self.conn:
             self.conn.close()
             self.conn = None
-            logger.info("Database connection closed.")
 
-    def get_papers_by_source(self, source: str):
-        """
-        Retrieve papers from a specific source.
-        
-        Args:
-            source (str): The source to filter by.
-            
-        Returns:
-            list: A list of Paper objects from the specified source.
-        """
-        if not self.conn:
-            logger.error("Database connection not established.")
-            return []
-            
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute("""
-                SELECT title, authors, published_date, source, abstract, url, doi,
-                       keywords, citations, journal, volume, issue, pages, pdf_url,
-                       arxiv_id, pubmed_id, semantic_scholar_id, created_at
-                FROM papers WHERE source = ?
-            """, (source,))
-            rows = cursor.fetchall()
-            papers = []
-            
-            for row in rows:
-                try:
-                    (title, authors, published_date, source, abstract, url, doi,
-                     keywords, citations, journal, volume, issue, pages, pdf_url,
-                     arxiv_id, pubmed_id, semantic_scholar_id, created_at) = row
-                    
-                    author_list = [a.strip() for a in authors.split(", ") if a.strip()] if authors else []
-                    keyword_list = [k.strip() for k in keywords.split(", ") if k.strip()] if keywords else []
-                    
-                    paper = Paper(
-                        title=title,
-                        authors=author_list,
-                        published_date=published_date,
-                        source=source,
-                        abstract=abstract,
-                        url=url,
-                        doi=doi,
-                        keywords=keyword_list,
-                        citations=citations,
-                        journal=journal,
-                        volume=volume,
-                        issue=issue,
-                        pages=pages,
-                        pdf_url=pdf_url,
-                        arxiv_id=arxiv_id,
-                        pubmed_id=pubmed_id,
-                        semantic_scholar_id=semantic_scholar_id
-                    )
-                    papers.append(paper)
-                    
-                except Exception as paper_error:
-                    logger.warning(f"Error creating paper object from database row: {paper_error}")
-                    continue
-                    
-            logger.info(f"Retrieved {len(papers)} papers from source '{source}'.")
-            return papers
-            
-        except Exception as e:
-            logger.error(f"Error retrieving papers by source from database: {e}")
-            return []
+    def __enter__(self) -> "DatabaseManager":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
+    def save_paper(self, paper: Paper) -> None:
+        self.save_papers([paper])
+
+    def save_papers(self, papers: Iterable[Paper]) -> int:
+        assert self.conn is not None
+        rows = [self._paper_to_row(paper) for paper in papers]
+        if not rows:
+            return 0
+
+        before = self.conn.total_changes
+        with self.conn:
+            self.conn.executemany(
+                """
+                INSERT OR IGNORE INTO papers (
+                    title, authors_json, published_date, source, abstract, url, doi,
+                    keywords_json, citations, journal, volume, issue, pages, pdf_url,
+                    arxiv_id, pubmed_id, semantic_scholar_id, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                rows,
+            )
+
+        return self.conn.total_changes - before
+
+    def get_all_papers(self) -> List[Paper]:
+        return self._fetch_papers("SELECT * FROM papers ORDER BY created_at DESC")
+
+    def get_papers_by_source(self, source: str) -> List[Paper]:
+        return self._fetch_papers(
+            "SELECT * FROM papers WHERE source = ? ORDER BY created_at DESC", params=(source,)
+        )
 
     def count_papers(self) -> int:
-        """
-        Count total number of papers in the database.
-        
-        Returns:
-            int: Number of papers in the database.
-        """
-        if not self.conn:
-            logger.error("Database connection not established.")
-            return 0
-            
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM papers")
-            count = cursor.fetchone()[0]
-            return count
-        except Exception as e:
-            logger.error(f"Error counting papers in database: {e}")
-            return 0
+        assert self.conn is not None
+        row = self.conn.execute("SELECT COUNT(*) AS n FROM papers").fetchone()
+        return int(row["n"]) if row else 0
 
     def paper_exists(self, title: str, authors: List[str]) -> bool:
-        """
-        Check if a paper already exists in the database.
-        
-        Args:
-            title (str): Paper title.
-            authors (List[str]): List of authors.
-            
-        Returns:
-            bool: True if paper exists, False otherwise.
-        """
-        if not self.conn:
-            logger.error("Database connection not established.")
-            return False
-            
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute("""
-                SELECT COUNT(*) FROM papers 
-                WHERE title = ? AND authors = ?
-            """, (title, ", ".join(authors) if authors else ""))
-            count = cursor.fetchone()[0]
-            return count > 0
-        except Exception as e:
-            logger.error(f"Error checking if paper exists: {e}")
-            return False
+        assert self.conn is not None
+        authors_json = json.dumps(authors or [], ensure_ascii=False)
+        row = self.conn.execute(
+            "SELECT 1 FROM papers WHERE title = ? AND authors_json = ? LIMIT 1",
+            (title, authors_json),
+        ).fetchone()
+        return row is not None
+
+    def _fetch_papers(self, query: str, params: tuple = ()) -> List[Paper]:
+        assert self.conn is not None
+        rows = self.conn.execute(query, params).fetchall()
+        papers: List[Paper] = []
+
+        for row in rows:
+            try:
+                papers.append(
+                    Paper.from_dict(
+                        {
+                            "title": row["title"],
+                            "authors": json.loads(row["authors_json"]),
+                            "published_date": row["published_date"],
+                            "source": row["source"],
+                            "abstract": row["abstract"],
+                            "url": row["url"],
+                            "doi": row["doi"],
+                            "keywords": json.loads(row["keywords_json"]),
+                            "citations": row["citations"],
+                            "journal": row["journal"],
+                            "volume": row["volume"],
+                            "issue": row["issue"],
+                            "pages": row["pages"],
+                            "pdf_url": row["pdf_url"],
+                            "arxiv_id": row["arxiv_id"],
+                            "pubmed_id": row["pubmed_id"],
+                            "semantic_scholar_id": row["semantic_scholar_id"],
+                            "created_at": row["created_at"],
+                        }
+                    )
+                )
+            except Exception as exc:
+                logger.warning("Skipping invalid DB row: %s", exc)
+
+        return papers
+
+    @staticmethod
+    def _paper_to_row(paper: Paper) -> tuple:
+        payload = paper.to_dict()
+        return (
+            payload["title"],
+            json.dumps(payload.get("authors") or [], ensure_ascii=False),
+            payload.get("published_date"),
+            payload.get("source"),
+            payload.get("abstract"),
+            payload.get("url"),
+            payload.get("doi"),
+            json.dumps(payload.get("keywords") or [], ensure_ascii=False),
+            payload.get("citations"),
+            payload.get("journal"),
+            payload.get("volume"),
+            payload.get("issue"),
+            payload.get("pages"),
+            payload.get("pdf_url"),
+            payload.get("arxiv_id"),
+            payload.get("pubmed_id"),
+            payload.get("semantic_scholar_id"),
+            payload.get("created_at"),
+        )
