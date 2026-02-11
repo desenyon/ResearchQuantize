@@ -1,40 +1,41 @@
-from setuptools import setup, find_packages
+from pathlib import Path
 
-with open("README.md", "r", encoding="utf-8") as fh:
-    long_description = fh.read()
+from setuptools import find_packages, setup
+
+ROOT = Path(__file__).parent
+README = (ROOT / "README.md").read_text(encoding="utf-8")
 
 setup(
     name="ResearchQuantize",
-    version="1.1",
+    version="2.0.0",
     author="Desenyon",
     author_email="Desenyon@gmail.com",
-    description="A command-line tool to aggregate and search research papers from multiple sources.",
-    long_description=long_description,
+    description="Aggregate and search research papers from ArXiv, PubMed, and Semantic Scholar.",
+    long_description=README,
     long_description_content_type="text/markdown",
     url="https://github.com/desenyon/ResearchQuantize",
-    packages=find_packages(where="src"),  # Find packages in the `src` directory
-    package_dir={"": "src"},  # Specify that packages are under `src`
+    package_dir={"": "src"},
+    packages=find_packages(where="src"),
+    py_modules=["cli"],
     include_package_data=True,
     install_requires=[
-        "requests>=2.28.1",
-        "rich>=12.6.0",
-        "lxml>=4.9.2",
-        "beautifulsoup4>=4.11.1",
-        "scholarly>=1.5.0",
-        "python-dotenv>=0.21.0",
+        "requests>=2.31.0",
+        "rich>=13.7.0",
+        "python-dotenv>=1.0.1",
     ],
     entry_points={
         "console_scripts": [
-            "paperengine=cli:main",  # Correct entry point
+            "researchquantize=cli:main",
         ],
     },
     classifiers=[
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
     ],
-    python_requires=">=3.8",
+    python_requires=">=3.9",
 )
