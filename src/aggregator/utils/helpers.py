@@ -1,260 +1,228 @@
-# src/aggregator/utils/helpers.py
+from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Set, Dict, Any
-import re
 from difflib import SequenceMatcher
+import re
+from typing import Any, Dict, Iterable, List, Optional
+
 from ..models.paper import Paper
 from ..utils.logger import setup_logger
 
-logger = setup_logger()
+logger = setup_logger(__name__)
 
-def format_date(date_str: str) -> str:
-    """
-    Format a date string into a more readable format.
-    
-    Args:
-        date_str (str): The date string to format.
-    
-    Returns:
-        str: The formatted date string.
-    """
+
+def format_date(date_str: Optional[str]) -> str:
+    """Convert common API date formats into a human-readable value."""
     if not date_str:
         return "Unknown"
-        
-    try:
-        # Try multiple date formats
-        formats = ["%Y-%m-%d", "%Y-%m-%dT%H:%M:%SZ", "%Y", "%Y-%m"]
-        for fmt in formats:
-            try:
-                date_obj = datetime.strptime(date_str[:len(fmt)], fmt)
-                return date_obj.strftime("%B %d, %Y") if fmt != "%Y" else str(date_obj.year)
-            except ValueError:
-                continue
-        return date_str
-    except Exception:
-        return date_str
 
-def clean_string(text: str) -> str:
-    """
-    Clean a string by removing extra whitespace and special characters.
-    
-    Args:
-        text (str): The string to clean.
-    
-    Returns:
-        str: The cleaned string.
-    """
-    if not text:
-        return ""
-    
-    # Remove HTML tags
-    text = re.sub(r'<[^>]+>', '', text)
-    # Normalize whitespace
-    text = re.sub(r'\s+', ' ', text.strip())
-    # Remove control characters
-    text = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', text)
-    
-    return text
+    normalized = str(date_str).strip()
+    if not normalized:
+        return "Unknown"
 
-def similarity_score(str1: str, str2: str) -> float:
-    """
-    Calculate similarity score between two strings.
-    
-    Args:
-        str1 (str): First string
-        str2 (str): Second string
-        
-    Returns:
-        float: Similarity score between 0 and 1
-    """
-    if not str1 or not str2:
-        return 0.0
-    
-    return SequenceMatcher(None, str1.lower(), str2.lower()).ratio()
+    candidates = [
+        ("%Y-%m-%d", normalized[:10]),
+        ("%Y-%m", normalized[:7]),
+        ("%Y", normalized[:4]),
+        ("%Y-%m-%dT%H:%M:%SZ", normalized[:20]),
+    ]
 
-def normalize_title(title: str) -> str:
-    """
-    Normalize a paper title for comparison.
-    
-    Args:
-        title (str): Paper title
-        
-    Returns:
-        str: Normalized title
-    """
-    if not title:
-        return ""
-    
-    # Convert to lowercase and remove punctuation
-    normalized = re.sub(r'[^\w\s]', '', title.lower())
-    # Remove extra whitespace
-    normalized = re.sub(r'\s+', ' ', normalized.strip())
-    
+    for fmt, value in candidates:
+        try:
+            parsed = datetime.strptime(value, fmt)
+            if fmt == "%Y":
+                return str(parsed.year)
+            if fmt == "%Y-%m":
+                return parsed.strftime("%B %Y")
+            return parsed.strftime("%B %d, %Y")
+        except ValueError:
+            continue
+
     return normalized
 
-def deduplicate_papers(papers: List[Paper], similarity_threshold: float = 0.85) -> List[Paper]:
-    """
-    Remove duplicate papers based on title similarity.
-    
-    Args:
-        papers (List[Paper]): List of papers to deduplicate
-        similarity_threshold (float): Threshold for considering papers as duplicates
-        
-    Returns:
-        List[Paper]: Deduplicated list of papers
-    """
+
+def clean_string(text: Optional[str]) -> str:
+    if not text:
+        return ""
+
+    cleaned = re.sub(r"<[^>]+>", "", str(text))
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    cleaned = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", cleaned)
+    return cleaned
+
+
+def similarity_score(str1: str, str2: str) -> float:
+    if not str1 or not str2:
+        return 0.0
+    return SequenceMatcher(None, str1.lower(), str2.lower()).ratio()
+
+
+def normalize_title(title: Optional[str]) -> str:
+    if not title:
+        return ""
+
+    normalized = re.sub(r"[^\w\s]", "", title.lower())
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized
+
+
+def _paper_quality_score(paper: Paper) -> int:
+    score = 0
+    score += 2 if paper.abstract else 0
+    score += 1 if paper.doi else 0
+    score += 1 if paper.url else 0
+    score += 1 if paper.pdf_url else 0
+    score += 1 if paper.citations is not None else 0
+    score += min(len(paper.authors), 3)
+    return score
+
+
+def deduplicate_papers(papers: List[Paper], similarity_threshold: float = 0.96) -> List[Paper]:
+    """De-duplicate by normalized title while preserving best metadata."""
     if not papers:
         return []
-    
-    unique_papers = []
-    seen_titles = set()
-    
+
+    groups: List[List[Paper]] = []
+    group_titles: List[str] = []
+
     for paper in papers:
-        if not paper.title:
+        normalized = normalize_title(paper.title)
+        if not normalized:
             continue
-            
-        normalized_title = normalize_title(paper.title)
-        
-        # Check if we've seen a similar title
-        is_duplicate = False
-        for seen_title in seen_titles:
-            if similarity_score(normalized_title, seen_title) >= similarity_threshold:
-                is_duplicate = True
+
+        placed = False
+        for idx, seen in enumerate(group_titles):
+            if similarity_score(normalized, seen) >= similarity_threshold:
+                groups[idx].append(paper)
+                placed = True
                 break
-        
-        if not is_duplicate:
-            unique_papers.append(paper)
-            seen_titles.add(normalized_title)
-    
-    logger.info(f"Deduplication: {len(papers)} -> {len(unique_papers)} papers")
-    return unique_papers
+
+        if not placed:
+            group_titles.append(normalized)
+            groups.append([paper])
+
+    deduped: List[Paper] = [max(group, key=_paper_quality_score) for group in groups]
+    logger.info("Deduplicated %s papers down to %s", len(papers), len(deduped))
+    return deduped
+
 
 def merge_papers_by_similarity(papers: List[Paper], similarity_threshold: float = 0.95) -> List[Paper]:
-    """
-    Merge similar papers by combining their information.
-    
-    Args:
-        papers (List[Paper]): List of papers to merge
-        similarity_threshold (float): Threshold for merging papers
-        
-    Returns:
-        List[Paper]: List with merged papers
-    """
     if not papers:
         return []
-    
-    merged_papers = []
-    processed = set()
-    
-    for i, paper in enumerate(papers):
-        if i in processed:
-            continue
-            
-        # Find similar papers
-        similar_papers = [paper]
-        for j, other_paper in enumerate(papers[i+1:], i+1):
-            if j in processed:
-                continue
-                
-            if similarity_score(normalize_title(paper.title), 
-                              normalize_title(other_paper.title)) >= similarity_threshold:
-                similar_papers.append(other_paper)
-                processed.add(j)
-        
-        # Merge information from similar papers
-        merged_paper = _merge_paper_info(similar_papers)
-        merged_papers.append(merged_paper)
-        processed.add(i)
-    
-    return merged_papers
 
-def _merge_paper_info(papers: List[Paper]) -> Paper:
-    """
-    Merge information from multiple similar papers.
-    
-    Args:
-        papers (List[Paper]): Papers to merge
-        
-    Returns:
-        Paper: Merged paper with combined information
-    """
+    merged: List[Paper] = []
+    used = set()
+
+    for i, base in enumerate(papers):
+        if i in used:
+            continue
+
+        cluster = [base]
+        base_norm = normalize_title(base.title)
+        for j, candidate in enumerate(papers[i + 1 :], i + 1):
+            if j in used:
+                continue
+            if similarity_score(base_norm, normalize_title(candidate.title)) >= similarity_threshold:
+                cluster.append(candidate)
+                used.add(j)
+
+        merged.append(_merge_cluster(cluster))
+        used.add(i)
+
+    return merged
+
+
+def _merge_cluster(papers: List[Paper]) -> Paper:
     if not papers:
-        raise ValueError("Cannot merge empty list of papers")
-    
+        raise ValueError("Cannot merge empty paper cluster")
     if len(papers) == 1:
         return papers[0]
-    
-    # Use the first paper as base
-    base_paper = papers[0]
-    
-    # Combine authors from all papers
-    all_authors = set()
+
+    best = max(papers, key=_paper_quality_score)
+
+    all_authors = []
+    seen = set()
     for paper in papers:
-        if paper.authors:
-            all_authors.update(paper.authors)
-    
-    # Use the most complete title
-    best_title = max(papers, key=lambda p: len(p.title or "")).title
-    
-    # Use the most recent date
-    best_date = None
-    for paper in papers:
-        if paper.published_date:
-            if not best_date or paper.published_date > best_date:
-                best_date = paper.published_date
-    
-    # Combine sources
-    sources = [p.source for p in papers if p.source]
-    combined_source = ", ".join(set(sources)) if sources else base_paper.source
-    
+        for author in paper.authors:
+            key = author.lower()
+            if key not in seen:
+                seen.add(key)
+                all_authors.append(author)
+
+    combined_sources = sorted({paper.source for paper in papers if paper.source})
+    keywords = sorted({kw for paper in papers for kw in paper.keywords if kw})
+
     return Paper(
-        title=best_title,
-        authors=list(all_authors),
-        published_date=best_date or base_paper.published_date,
-        source=combined_source
+        title=max(papers, key=lambda p: len(p.title)).title,
+        authors=all_authors,
+        published_date=max((p.published_date for p in papers if p.published_date), default=best.published_date),
+        source=", ".join(combined_sources) if combined_sources else best.source,
+        abstract=best.abstract,
+        url=best.url,
+        doi=best.doi,
+        keywords=keywords,
+        citations=max((p.citations for p in papers if p.citations is not None), default=best.citations),
+        journal=best.journal,
+        volume=best.volume,
+        issue=best.issue,
+        pages=best.pages,
+        pdf_url=best.pdf_url,
+        arxiv_id=best.arxiv_id,
+        pubmed_id=best.pubmed_id,
+        semantic_scholar_id=best.semantic_scholar_id,
     )
 
+
 def validate_paper_data(paper_data: Dict[str, Any]) -> bool:
-    """
-    Validate paper data before creating Paper object.
-    
-    Args:
-        paper_data (Dict): Paper data dictionary
-        
-    Returns:
-        bool: True if valid, False otherwise
-    """
-    required_fields = ['title']
-    
-    for field in required_fields:
-        if not paper_data.get(field):
-            return False
-    
-    return True
+    title = paper_data.get("title")
+    return bool(title and str(title).strip())
+
 
 def extract_keywords_from_title(title: str) -> List[str]:
-    """
-    Extract potential keywords from paper title.
-    
-    Args:
-        title (str): Paper title
-        
-    Returns:
-        List[str]: List of keywords
-    """
     if not title:
         return []
-    
-    # Common stop words to exclude
+
     stop_words = {
-        'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from',
-        'has', 'he', 'in', 'is', 'it', 'its', 'of', 'on', 'that', 'the',
-        'to', 'was', 'will', 'with', 'via', 'using', 'based', 'new', 'novel'
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "by",
+        "for",
+        "from",
+        "has",
+        "in",
+        "is",
+        "it",
+        "of",
+        "on",
+        "that",
+        "the",
+        "to",
+        "was",
+        "will",
+        "with",
+        "using",
+        "based",
+        "new",
+        "novel",
     }
-    
-    # Extract words, remove punctuation and filter
-    words = re.findall(r'\b[a-zA-Z]{3,}\b', title.lower())
+
+    words = re.findall(r"\b[a-zA-Z]{3,}\b", title.lower())
     keywords = [word for word in words if word not in stop_words]
-    
-    return keywords[:10]  # Return top 10 keywords
+    return keywords[:10]
+
+
+def parse_year(value: Optional[str]) -> Optional[int]:
+    if not value:
+        return None
+
+    match = re.search(r"\b(19|20)\d{2}\b", str(value))
+    return int(match.group(0)) if match else None
+
+
+def filter_papers_by_year(papers: Iterable[Paper], year: int) -> List[Paper]:
+    return [paper for paper in papers if parse_year(paper.published_date) == year]
